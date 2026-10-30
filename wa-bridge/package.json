@@ -1,0 +1,17 @@
+{
+  "name": "erp-wa-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Local WhatsApp bridge for the ERP notice watcher (unofficial, Baileys)",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "express": "^4.21.2",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

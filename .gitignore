@@ -1,0 +1,13 @@
+.env
+state/
+*.pyc
+__pycache__/
+venv/
+wa-bridge/node_modules/
+wa-bridge/.wwebjs_auth/
+wa-bridge/.wwebjs_cache/
+wa-bridge/.baileys_auth/
+wa-bridge/logs/
+.DS_Store
+*.log
+*.pem
