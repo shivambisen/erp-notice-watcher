@@ -446,18 +446,32 @@ def main():
             check_companies(client)
             time.sleep(args.loop)
 
-    code = 0
+    code, error = 0, ""
     try:
         poll(client)
     except LoginFailed as exc:
         report_failure(exc)
+        record_run(False, f"login failed: {exc}")
         return 2
     except Exception as exc:
         report_failure(exc)
-        code = 1
+        code, error = 1, f"{type(exc).__name__}: {exc}"
     retry_whatsapp(client)
     check_companies(client)
+    record_run(code == 0, error)
     return code
+
+
+def record_run(ok: bool, error: str = ""):
+    """Leave a note of this run for healthcheck.py: when it ran and whether the
+    board check worked. Never fails the run itself."""
+    import json
+
+    try:
+        (config.STATE_DIR / "last_run.json").write_text(json.dumps(
+            {"at": time.time(), "ok": ok, "error": error[:300]}))
+    except OSError as exc:
+        log.warning("Could not record the run: %s", exc)
 
 
 if __name__ == "__main__":

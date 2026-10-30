@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll the ERP notice board every 30 minutes
+
+[Timer]
+OnCalendar=*:00/30
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

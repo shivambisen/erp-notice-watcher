@@ -106,8 +106,9 @@ def send_alert(subject: str, body: str):
     )
 
 
-def _send(subject: str, body_text: str, body_html: str, attachment=None, to=None):
-    if not config.MAIL_ENABLED:
+def _send(subject: str, body_text: str, body_html: str, attachment=None, to=None, force=False):
+    # force: the health check's last resort when WhatsApp itself is down
+    if not config.MAIL_ENABLED and not force:
         log.debug("Email off; not sending %r", subject)
         return
     msg = EmailMessage()

@@ -97,6 +97,32 @@ That shows what it is doing. The other useful commands:
 | `./venv/bin/python serve.py` | web UI: notice board, recipients, status (localhost only) |
 | `launchctl bootout gui/$UID/com.shivam.erpnoticewatcher` | stop the schedule |
 
+## Running it on a server, with a health check
+
+To keep it online all the time, run it on a small Linux server (an AWS EC2
+`t3.micro` is plenty). The systemd units are in [deploy/systemd](deploy/systemd).
+Copy them to `/etc/systemd/system/`, then:
+
+```bash
+sudo systemctl enable --now erp-wa-bridge.service erp-watcher.timer erp-health.timer
+```
+
+`erp-health.timer` runs [healthcheck.py](healthcheck.py) every 6 hours, at
+08:05, 14:05, 20:05 and 02:05 IST. On each run it:
+
+- checks the last watcher run was recent and actually read the board;
+- checks the 30-minute schedule is on, the WhatsApp bridge is connected, disk
+  space, the retry queue, and failed auto-applies;
+- **fixes what it safely can:** it restarts a disconnected bridge, turns the
+  schedule back on, or starts a missed run;
+- sends you **one WhatsApp message** in your own "Message yourself" chat, either
+  *all good* or what was wrong and what it already fixed. If WhatsApp itself is
+  down, it emails you once instead.
+
+If a 6-hourly message doesn't arrive, the server itself is down. Run
+`./venv/bin/python healthcheck.py --dry-run` to see the report without changing
+or sending anything. Set `HEALTH_NOTIFY_TO` to send it to a different number.
+
 ## Settings you might change
 
 All of these live in `.env`. The full list with comments is in

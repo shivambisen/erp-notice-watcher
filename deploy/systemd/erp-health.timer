@@ -1,0 +1,10 @@
+[Unit]
+Description=ERP watcher health check every 6 hours
+
+[Timer]
+# 02:35, 08:35, 14:35, 20:35 UTC = 08:05, 14:05, 20:05, 02:05 IST
+OnCalendar=*-*-* 02,08,14,20:35:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

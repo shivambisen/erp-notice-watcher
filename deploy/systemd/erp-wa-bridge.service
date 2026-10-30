@@ -1,0 +1,17 @@
+[Unit]
+Description=WhatsApp bridge for the ERP notice watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/erp-notice-watcher/wa-bridge
+ExecStart=/usr/bin/node bridge.js
+Restart=always
+RestartSec=15
+StandardOutput=append:/home/ubuntu/erp-notice-watcher/wa-bridge/bridge.log
+StandardError=append:/home/ubuntu/erp-notice-watcher/wa-bridge/bridge.log
+
+[Install]
+WantedBy=multi-user.target
