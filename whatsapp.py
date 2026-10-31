@@ -260,7 +260,9 @@ def tidy_body(body: str) -> str:
                r"|Students|Please|Kindly|Note|Deadline|Venue)(?=[\s:-])", r"\1\n\2", b)
     # numbered items: "1." "12." glued after a full stop, bracket, colon or
     # space, followed by the item text (never inside a date like 28.10.2026)
-    b = re.sub(r"(?:(?<=[.)\]:])|(?<=\s))(\d{1,2})\.\s*(?=[A-Za-z(])", r"\n\1. ", b)
+    b = re.sub(r"(?:(?<=[.)\]:])|(?<=\s))(\d{1,2})\.\s*(?=[A-Za-z(\[])", r"\n\1. ", b)
+    # time ranges that lost their dash ("(8:30 AM 10:30 AM)")
+    b = re.sub(r"(\d{1,2}:\d{2}\s*[AP]M)\s+(?=\d{1,2}:\d{2}\s*[AP]M)", r"\1 - ", b)
     # sentence ends glued to the next sentence ("details.The test", "2026.Qualtrics")
     b = re.sub(r"(?<=[a-z0-9)])\.(?=[A-Z][a-z])", ".\n", b)
     # a heading glued to its content ("Requirements:Data Science", "Notes:Both")
@@ -270,7 +272,12 @@ def tidy_body(body: str) -> str:
     b = re.sub(r"(?<=[a-z)])(?=(?:The|Interested|Students|Please|All|Further|For more|Kindly|Note)\b)",
                "\n", b)
     # labels that start a new line in the original ("Venue:", "POC:")
-    b = re.sub(r"\s*(?<![A-Za-z])(Venue|POC|Note|Date|Time|Deadline)\s*:", r"\n\1:", b)
+    # (also when glued to the previous word: "Mode: OnlinePOC: Aditya")
+    b = re.sub(r"\s*(?<![A-Z])(Venue|POC|Note|Date|Time|Deadline|Mode|Link)\s*:", r"\n\1:", b)
+    # any other label glued onto the text before it ("2026Reporting Time:",
+    # "11:59 PMRound 2:", "...(10 AM)Duration:")
+    b = re.sub(r"(?:(?<=[a-z0-9)])|(?<=[AP]M))(?=(?:[A-Z][a-z]+ ){0,3}[A-Z][a-z]+(?: \d+)?\s*:(?!//))",
+               "\n", b)
     # signature
     b = re.sub(r"\s*(CDC,?\s*IIT\s*Kharagpur\.?)\s*$", r"\n\n_\1_", b)
     lines = [ln.strip() for ln in b.split("\n")]
