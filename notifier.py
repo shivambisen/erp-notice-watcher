@@ -157,22 +157,27 @@ def send_private(subject: str, body: str):
 
 
 def _whatsapp_fallback(subject: str, body: str):
-    """With email off, send a watcher-health warning to WhatsApp instead (queued if
-    the bridge is down). Never raises."""
+    """With email off, send a watcher-health warning to your own WhatsApp chat
+    instead (queued if the bridge is down). Never raises."""
     try:
         import whatsapp
         if not whatsapp.enabled():
             return
         text = f"*{subject}*\n\n{body[:1500]}"
+        to = None
         try:
             if not whatsapp.wait_ready(30):
                 raise RuntimeError("bridge not ready")
-            if not whatsapp.send(text)["sent"]:
+            # your own chat, not the group: the group is for notices
+            to = whatsapp.owner_targets()
+            if not to:
+                raise RuntimeError("no owner chat known")
+            if not whatsapp.send(text, to)["sent"]:
                 raise RuntimeError("no target accepted it")
         except Exception as exc:
             import db
-            if db.enabled():
-                db.wa_enqueue("text", {"text": text})
+            if db.enabled() and to:
+                db.wa_enqueue("text", {"text": text, "to": to})
             log.warning("Health warning not delivered to WhatsApp (%s); queued", exc)
     except Exception as exc:
         log.warning("Health warning dropped: %s", exc)

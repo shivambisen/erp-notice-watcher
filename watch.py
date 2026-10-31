@@ -266,7 +266,7 @@ def retry_whatsapp(client: ErpClient):
                 if row["kind"] == "notice":
                     res = whatsapp.send_notices([row["payload"]["cells"]], attach_fn)
                 else:
-                    res = whatsapp.send(row["payload"]["text"])
+                    res = whatsapp.send(row["payload"]["text"], row["payload"].get("to"))
                 if not res["sent"]:
                     raise RuntimeError(f"all targets failed: {res['failed']}")
                 db.wa_done(row["id"])

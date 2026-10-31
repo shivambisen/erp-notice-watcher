@@ -100,12 +100,15 @@ That shows what it is doing. The other useful commands:
 ## Running it on a server, with a health check
 
 To keep it online all the time, run it on a small Linux server (an AWS EC2
-`t3.micro` is plenty). The systemd units are in [deploy/systemd](deploy/systemd).
-Copy them to `/etc/systemd/system/`, then:
+`t3.micro` is plenty). After the normal setup on the server, one command
+installs the services, the timers and the log size limits:
 
 ```bash
-sudo systemctl enable --now erp-wa-bridge.service erp-watcher.timer erp-health.timer
+./deploy/install-server.sh
 ```
+
+Run it on one machine only. Two machines checking at once log each other out of
+the ERP, because it allows one session at a time.
 
 `erp-health.timer` runs [healthcheck.py](healthcheck.py) every 6 hours, at
 08:05, 14:05, 20:05 and 02:05 IST. On each run it:
@@ -115,7 +118,12 @@ sudo systemctl enable --now erp-wa-bridge.service erp-watcher.timer erp-health.t
   space, the retry queue, and failed auto-applies;
 - **fixes what it safely can:** it restarts a disconnected bridge, turns the
   schedule back on, or starts a missed run;
-- sends you **one WhatsApp message** in your own "Message yourself" chat, either
+- **clears disk space before it runs out.** Below 25% free it deletes package
+  caches, old system logs, old snap versions and oversized logs. It never touches
+  the WhatsApp login, `.env` or the database. Logs are also size-capped, so they
+  can't grow forever;
+- sends you **one WhatsApp message** in your own "Message yourself" chat (error
+  warnings go there too, never to the group), either
   *all good* or what was wrong and what it already fixed. If WhatsApp itself is
   down, it emails you once instead.
 

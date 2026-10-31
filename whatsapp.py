@@ -17,6 +17,7 @@ Unofficial WhatsApp Web automation is deliberately not supported: it violates
 WhatsApp's terms and gets numbers banned.
 """
 import logging
+import os
 
 import requests
 
@@ -331,6 +332,19 @@ def send_document(caption: str, attachment, numbers: list | None = None) -> dict
             results["failed"][number] = str(exc)[:200]
             log.warning("WhatsApp document to %s failed: %s", number, exc)
     return results
+
+
+def owner_targets() -> list:
+    """Where watcher-health messages go: HEALTH_NOTIFY_TO, else the linked
+    account's own "Message yourself" chat -- never the shared group."""
+    targets = [t.strip() for t in os.getenv("HEALTH_NOTIFY_TO", "").split(",") if t.strip()]
+    if targets or config.WHATSAPP_PROVIDER != "bridge":
+        return targets
+    try:
+        me = (requests.get(f"{config.WA_BRIDGE_URL}/status", timeout=5).json() or {}).get("me") or ""
+    except Exception:
+        me = ""
+    return [me.split(":")[0].split("@")[0]] if me else []
 
 
 def wait_ready(timeout: int = 60) -> bool:

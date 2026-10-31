@@ -5,7 +5,8 @@ Run on a timer (every 6 hours on the server). It looks at:
   - the last watcher run: recent, and did it actually check the board?
   - the schedule: is the watcher's timer still on?
   - the WhatsApp bridge: connected? (restarted if not)
-  - disk space, the WhatsApp retry queue, and failed auto-applies
+  - disk space (cleans up safe junk below 25% free), the WhatsApp retry
+    queue, and failed auto-applies
 
 Then sends ONE WhatsApp message to your own chat ("Message yourself"), or
 HEALTH_NOTIFY_TO: all good, or what is wrong and what it already fixed. If
@@ -35,6 +36,7 @@ log = logging.getLogger("health")
 
 STALE_AFTER = int(os.getenv("HEALTH_STALE_MINUTES", "75")) * 60  # timer runs every 30 min
 DISK_MIN_FREE = 0.10
+CLEAN_BELOW = 0.25  # start deleting safe junk well before it is a problem
 ON_SYSTEMD = shutil.which("systemctl") is not None
 
 
@@ -121,12 +123,42 @@ def check_bridge(r: Report, dry: bool) -> dict:
     return st
 
 
-def check_disk(r: Report):
+def free_space() -> int:
+    """Delete what is safe to delete: package caches, old system logs, oversized
+    or rotated logs of our own, old debug dumps. Returns MB freed. Never touches
+    the WhatsApp login (.baileys_auth), .env or the database."""
+    before = shutil.disk_usage(config.STATE_DIR).free
+    if ON_SYSTEMD:
+        _sh("sudo", "-n", "apt-get", "clean")
+        _sh("sudo", "-n", "journalctl", "--vacuum-size=50M")
+        # old snap revisions are kept around by default and can be 100s of MB
+        code, out = _sh("snap", "list", "--all")
+        for line in out.splitlines():
+            parts = line.split()
+            if code == 0 and len(parts) >= 3 and "disabled" in line:
+                _sh("sudo", "-n", "snap", "remove", parts[0], "--revision", parts[2])
+    bridge_dir = config.BASE / "wa-bridge"
+    for log_file in list(bridge_dir.glob("*.log")) + list((bridge_dir / "logs").glob("*.log")):
+        if log_file.stat().st_size > 20 * 2**20:
+            _sh("sudo", "-n", "truncate", "-s", "0", str(log_file)) if ON_SYSTEMD else log_file.write_text("")
+    week_ago = time.time() - 7 * 86400
+    for old in list(config.STATE_DIR.glob("*.log.[0-9]*")) + list(config.STATE_DIR.glob("last_*.html")):
+        if old.stat().st_mtime < week_ago:
+            old.unlink(missing_ok=True)
+    return max(shutil.disk_usage(config.STATE_DIR).free - before, 0) // 2**20
+
+
+def check_disk(r: Report, dry: bool):
     du = shutil.disk_usage(config.STATE_DIR)
     free = du.free / du.total
+    if free < CLEAN_BELOW and not dry:
+        freed = free_space()
+        r.fixed.append(f"Cleaned up disk space, freed {freed} MB")
+        du = shutil.disk_usage(config.STATE_DIR)
+        free = du.free / du.total
     if free < DISK_MIN_FREE:
         # a full disk is what crashed the bridge before (ENOSPC)
-        r.problems.append(f"Disk almost full: {free:.0%} free ({du.free // 2**20} MB)")
+        r.problems.append(f"Disk almost full even after cleanup: {free:.0%} free ({du.free // 2**20} MB)")
     else:
         r.ok.append(f"Disk {free:.0%} free")
 
@@ -170,13 +202,11 @@ def compose(r: Report) -> str:
     return "\n".join(lines)
 
 
-def deliver(text: str, me: str, problems: bool) -> str:
-    targets = [t.strip() for t in os.getenv("HEALTH_NOTIFY_TO", "").split(",") if t.strip()]
-    if not targets and me:
-        targets = [me.split(":")[0].split("@")[0]]  # "9193...:16@s.whatsapp.net" -> own chat
-    if targets and config.WHATSAPP_PROVIDER != "off":
-        import whatsapp
+def deliver(text: str, problems: bool) -> str:
+    import whatsapp
 
+    targets = whatsapp.owner_targets()
+    if targets and config.WHATSAPP_PROVIDER != "off":
         try:
             res = whatsapp.send(text, targets)
             if res["sent"]:
@@ -202,14 +232,14 @@ def main() -> int:
     check_timer(r, args.dry_run)
     check_last_run(r, args.dry_run)
     st = check_bridge(r, args.dry_run)
-    check_disk(r)
+    check_disk(r, args.dry_run)
     check_db(r)
 
     text = compose(r)
     print(text)
     if args.dry_run:
         return 0
-    via = deliver(text, st.get("me", ""), bool(r.problems))
+    via = deliver(text, bool(r.problems))
     log.info("Health report: %d problem(s), %d fixed, sent via %s", len(r.problems), len(r.fixed), via)
     return 1 if r.problems and not r.fixed else 0
 
