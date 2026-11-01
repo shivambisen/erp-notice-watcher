@@ -10,7 +10,7 @@ Watches the IIT Kharagpur ERP for you and acts on it:
 - **Login is handled for you.** It answers your security question and reads the
   login OTP from your mailbox, so it never needs you.
 
-It runs on a Mac and checks every 30 minutes. A Linux server works too (see
+It runs on a Mac and checks every 10 minutes. A Linux server works too (see
 [docs/DETAILS.md](docs/DETAILS.md)).
 
 ## What you need
@@ -70,11 +70,11 @@ lists every open company with the portal's verdict. It changes nothing:
 ./venv/bin/python watch.py --companies
 ```
 
-**Turn it on.** This checks every 30 minutes, in the background, and survives
+**Turn it on.** This checks every 10 minutes, in the background, and survives
 reboots:
 
 ```bash
-./install-launchd.sh 1800
+./install-launchd.sh 600
 ```
 
 On the first run it only records what is already on the notice board, so you

@@ -1,8 +1,8 @@
 [Unit]
-Description=Poll the ERP notice board every 30 minutes
+Description=Poll the ERP notice board every 10 minutes
 
 [Timer]
-OnCalendar=*:00/30
+OnCalendar=*:00/10
 AccuracySec=1min
 Persistent=true
 

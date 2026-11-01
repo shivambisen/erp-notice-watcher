@@ -34,7 +34,7 @@ import config
 
 log = logging.getLogger("health")
 
-STALE_AFTER = int(os.getenv("HEALTH_STALE_MINUTES", "75")) * 60  # timer runs every 30 min
+STALE_AFTER = int(os.getenv("HEALTH_STALE_MINUTES", "35")) * 60  # timer runs every 10 min
 DISK_MIN_FREE = 0.10
 CLEAN_BELOW = 0.25  # start deleting safe junk well before it is a problem
 ON_SYSTEMD = shutil.which("systemctl") is not None
@@ -73,7 +73,7 @@ def check_last_run(r: Report, dry: bool):
         return
     age = time.time() - last.get("at", 0)
     if age > STALE_AFTER:
-        r.problems.append(f"Watcher last ran {_ago(age)} (should be every 30 min)")
+        r.problems.append(f"Watcher last ran {_ago(age)} (should be every 10 min)")
         if ON_SYSTEMD and not dry:
             code, out = _sh("sudo", "-n", "systemctl", "start", "--no-block", "erp-watcher.service")
             if code == 0:
