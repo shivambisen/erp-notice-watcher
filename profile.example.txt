@@ -1,0 +1,34 @@
+# Your answers for outside application forms (Google Forms etc.).
+# Copy to profile.txt and fill in. One "label: answer" per line.
+#
+# Only what is written here is ever submitted. The form filler matches each
+# form question to one of these lines; it never makes up an answer. A question
+# it cannot match is sent to you on WhatsApp, and your reply is added at the
+# bottom of this file so the same question is answered next time.
+
+Full Name:
+Roll No:
+CDC Registered Email ID:
+Personal Email:
+Phone Number:
+WhatsApp Number:
+Gender:
+Date of Birth (DD-MM-YYYY):
+Department:
+Degree:
+Year of Graduation:
+CGPA:
+10th Percentage:
+12th Percentage:
+Active Backlogs: 0
+LinkedIn:
+GitHub:
+Current City:
+Hometown:
+Willing to relocate: Yes
+
+# When a form asks you to choose or rank roles, the first one in this list that
+# the form offers is picked. Best first, separated by ">".
+Role priority: Software Engineering > Data Science > AI/ML > Generative AI > Quant > Business Analyst > Product
+
+# Learned from your WhatsApp replies

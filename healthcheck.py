@@ -110,8 +110,8 @@ def check_bridge(r: Report, dry: bool) -> dict:
         r.ok.append("WhatsApp connected")
         return bridge_status()
     st = bridge_status()
-    if st.get("hasQr"):
-        r.problems.append("WhatsApp is logged out - it needs the QR scanned again (wa-bridge/start.sh)")
+    if st.get("hasQr") or "401" in str(st.get("error")):
+        r.problems.append("WhatsApp unlinked this server - re-link it: ./deploy/relink-whatsapp.sh")
         return st
     r.problems.append("WhatsApp bridge was not connected")
     if ON_SYSTEMD and not dry:

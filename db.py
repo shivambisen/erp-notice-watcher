@@ -89,6 +89,19 @@ create table if not exists wa_outbox (
 );
 create index if not exists wa_outbox_pending_idx on wa_outbox (id) where sent_at is null;
 
+create table if not exists form_tasks (
+    id          bigserial primary key,
+    url         text        not null unique,
+    company     text,
+    title       text,
+    deadline    text,
+    status      text        not null default 'new',
+    detail      jsonb       not null default '{}',
+    attempts    int         not null default 0,
+    created_at  timestamptz not null default now(),
+    updated_at  timestamptz not null default now()
+);
+
 create table if not exists meta (
     key        text primary key,
     value      jsonb not null,
@@ -408,3 +421,56 @@ def wa_pending() -> int:
     with connect() as conn, conn.cursor() as cur:
         cur.execute("select count(*) as n from wa_outbox where sent_at is null")
         return cur.fetchone()["n"]
+
+
+# --- Outside application forms ---------------------------------------------
+# One row per form link found in a notice. status: new -> submitted, or asked
+# (waiting for your WhatsApp reply), handoff (you fill it), failed.
+def form_add(url: str, company: str, title: str, deadline: str) -> int | None:
+    """Record a form link once. Returns its id, or None if already known."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""insert into form_tasks (url, company, title, deadline)
+                           values (%s, %s, %s, %s) on conflict (url) do nothing returning id""",
+                        (url, company, title, deadline))
+            row = cur.fetchone()
+        conn.commit()
+    return row["id"] if row else None
+
+
+def form_get(task_id: int):
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select * from form_tasks where id = %s", (task_id,))
+        return cur.fetchone()
+
+
+def form_claim(task_id: int, from_status: tuple) -> bool:
+    """Atomically move a task to 'working' so two runs never submit it twice."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""update form_tasks set status = 'working', attempts = attempts + 1,
+                                  updated_at = now()
+                            where id = %s and (status = any(%s)
+                                  or (status = 'working' and updated_at < now() - interval '15 minutes'))
+                        returning id""", (task_id, list(from_status)))
+            ok = cur.fetchone() is not None
+        conn.commit()
+    return ok
+
+
+def form_set(task_id: int, status: str, detail: dict | None = None):
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""update form_tasks set status = %s, updated_at = now(),
+                                  detail = case when %s::jsonb is null then detail else detail || %s::jsonb end
+                            where id = %s""",
+                        (status, json.dumps(detail) if detail is not None else None,
+                         json.dumps(detail) if detail is not None else None, task_id))
+        conn.commit()
+
+
+def form_list(statuses: tuple, limit: int = 50) -> list:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select * from form_tasks where status = any(%s) order by id desc limit %s",
+                    (list(statuses), limit))
+        return cur.fetchall()

@@ -14,5 +14,5 @@ sudo systemctl restart systemd-journald
 command -v snap >/dev/null && sudo snap set system refresh.retain=2 || true
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now erp-wa-bridge.service erp-watcher.timer erp-health.timer
+sudo systemctl enable --now erp-wa-bridge.service erp-watcher.timer erp-health.timer erp-forms-inbox.timer
 systemctl list-timers 'erp-*' --no-pager

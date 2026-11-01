@@ -1,0 +1,10 @@
+[Unit]
+Description=Read your WhatsApp replies to form questions and finish those forms
+After=network-online.target erp-wa-bridge.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/erp-notice-watcher
+ExecStart=/home/ubuntu/erp-notice-watcher/venv/bin/python forms.py --inbox
+TimeoutStartSec=600

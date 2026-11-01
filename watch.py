@@ -184,6 +184,10 @@ def poll_with_db(notices: list, attach_fn=None) -> int:
     deliver_whatsapp(fresh, attach_fn)
 
     db.mark_alerted(fresh, store.fingerprint)
+
+    # notices that link a form (e.g. "applicants must fill this form"): fill it
+    import forms
+    forms.process_notices(fresh)
     return len(fresh)
 
 

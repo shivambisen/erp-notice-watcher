@@ -95,3 +95,43 @@ Changes apply from the next check. No restart is needed.
 | Login fails | run `./configure.sh` again (password or security answers) |
 
 Logs: `tail -f state/watcher.log` (search for `Applied`).
+
+## Outside forms (Google Forms)
+
+Companies often follow up with *"all students who applied must fill this form"*.
+For a company you applied to, [forms.py](forms.py) fills that Google Form for you:
+
+1. **It reads the questions** from the form page.
+2. **It answers from `profile.txt`**, your own answers, written once (copy
+   [profile.example.txt](profile.example.txt)). Role choices follow your
+   `Role priority` line. Claude Haiku, running on your own Claude login, only
+   decides which line answers which question. **What gets submitted is always
+   your text, never something the AI wrote.**
+3. **It submits when every required question is answered**, then posts
+   *Form submitted* with all the answers to your own WhatsApp chat.
+4. **It asks you whatever's missing** in your own chat. Reply
+   `F12 1: your answer; 2: b`; letters pick an option. Your answers are added to
+   `profile.txt` for next time.
+5. **It hands over what it can't do:** file uploads, grids, closed forms, an
+   expired Google session. You get the link and the deadline.
+
+One-time setup, all on your Mac:
+
+| Step | Command |
+|---|---|
+| Your answers | fill `profile.txt` from `profile.example.txt`, then `scp` it to the server's project folder |
+| Claude login, no API key | `claude setup-token`, then `./deploy/set-claude-token.sh` |
+| Google session (CDC forms record your verified kgpian email) | export cookies with the Chrome extension *Get cookies.txt LOCALLY*, then `./deploy/upload-google-session.sh <file>` |
+
+Read-only test on any form: `./venv/bin/python forms.py --check <form link>`.
+Catch up on forms from the last 3 days: `./venv/bin/python forms.py --scan`.
+
+The Google session file lets whoever has it act as your Google account. It is
+stored readable only by you, and the upload script deletes your local copy.
+If it expires, the filler tells you, and you export it again.
+
+| Setting | Default | |
+|---|---|---|
+| `FORMS_AUTOFILL` | on | `off` stops the form filler |
+| `FORMS_AUTO_SUBMIT` | on | `off` always asks you before submitting |
+| `FORMS_ALL_COMPANIES` | off | also fill forms for companies you didn't apply to |

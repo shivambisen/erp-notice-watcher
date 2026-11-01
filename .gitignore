@@ -11,3 +11,4 @@ wa-bridge/logs/
 .DS_Store
 *.log
 *.pem
+profile.txt

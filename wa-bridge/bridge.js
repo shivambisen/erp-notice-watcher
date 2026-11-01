@@ -29,11 +29,17 @@ const {
 // libsignal (inside Baileys) console.logs whole session objects during normal
 // ratchet churn -- including privKey/rootKey buffers. That is noise at best and
 // key material written to your terminal and logs at worst, so drop those lines.
+const util = require('util');
 const _log = console.log.bind(console);
+const KEY_DUMP = /privKey|rootKey|chainKey|ephemeralKeyPair|registrationId/;
 console.log = function (...args) {
   const first = args[0];
   if (typeof first === 'string' &&
       /^(Closing (open )?session|SessionEntry|Session closed|Removing old closed session)/.test(first)) {
+    return;
+  }
+  // any line that would print session key material, whatever its prefix
+  if (args.some(function (a) { return typeof a === 'object' && a !== null && KEY_DUMP.test(util.inspect(a, { depth: 3 })); })) {
     return;
   }
   _log(...args);
@@ -41,6 +47,13 @@ console.log = function (...args) {
 
 const PORT = Number(process.env.WA_BRIDGE_PORT || 8766);
 const AUTH_DIR = '.baileys_auth';
+// Link with an 8-digit code instead of a QR: put your number (with country
+// code) in pair-phone.txt, start the bridge, read the code from /status or the
+// log, and enter it on your phone: WhatsApp > Linked devices > Link a device >
+// Link with phone number instead. The file is removed once linked.
+const fs = require('fs');
+const PAIR_FILE = 'pair-phone.txt';
+let pairingCode = null;
 
 let sock = null;
 let lastQr = null;
@@ -48,6 +61,24 @@ let ready = false;
 let me = null;
 let lastError = null;
 let starting = false;
+
+// Replies YOU type in your own "Message yourself" chat, so the watcher can ask
+// you a question (e.g. a form answer) and read the answer. Nothing from any
+// other chat is ever kept. Messages this bridge sent itself are skipped.
+const INBOX_MAX = 50;
+const inbox = [];
+const sentIds = new Set();
+function rememberSent(sent) {
+  if (sent && sent.key && sent.key.id) {
+    sentIds.add(sent.key.id);
+    if (sentIds.size > 500) sentIds.delete(sentIds.values().next().value);
+  }
+}
+function isSelfChat(jid) {
+  if (!jid || !sock || !sock.user) return false;
+  const num = function (j) { return String(j).split('@')[0].split(':')[0]; };
+  return num(jid) === num(sock.user.id) || (sock.user.lid && num(jid) === num(sock.user.lid));
+}
 
 const logger = pino({ level: process.env.WA_LOG_LEVEL || 'silent' });
 
@@ -62,11 +93,36 @@ async function start() {
     sock = makeWASocket({ version, auth: state, logger, syncFullHistory: false });
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
+    sock.ev.on('messages.upsert', function (ev) {
+      for (const m of (ev && ev.messages) || []) {
+        if (!m.key || !m.key.fromMe || sentIds.has(m.key.id) || !isSelfChat(m.key.remoteJid)) continue;
+        const msg = m.message || {};
+        const text = msg.conversation || (msg.extendedTextMessage && msg.extendedTextMessage.text) || '';
+        if (!text) continue;
+        inbox.push({ id: m.key.id, text: text, ts: Number(m.messageTimestamp) || Math.floor(Date.now() / 1000) });
+        if (inbox.length > INBOX_MAX) inbox.shift();
+      }
+    });
+
+    let pairRequested = false;
+    sock.ev.on('connection.update', async (update) => {
       const connection = update.connection;
       const qr = update.qr;
+      const pairPhone = fs.existsSync(PAIR_FILE) ? fs.readFileSync(PAIR_FILE, 'utf8').replace(/\D/g, '') : '';
 
-      if (qr) {
+      if (qr && pairPhone && !state.creds.registered) {
+        lastQr = qr;
+        ready = false;
+        if (!pairRequested) {
+          pairRequested = true;
+          try {
+            pairingCode = await sock.requestPairingCode(pairPhone);
+            console.log('PAIRING CODE: ' + pairingCode + '  (WhatsApp > Linked devices > Link with phone number)');
+          } catch (e) {
+            console.error('Could not get a pairing code: ' + (e && e.message ? e.message : e));
+          }
+        }
+      } else if (qr) {
         lastQr = qr;
         ready = false;
         console.log('\nScan with WhatsApp > Linked devices > Link a device:\n');
@@ -79,6 +135,8 @@ async function start() {
         lastQr = null;
         lastError = null;
         me = sock.user && sock.user.id ? sock.user.id : null;
+        pairingCode = null;
+        if (fs.existsSync(PAIR_FILE)) fs.unlinkSync(PAIR_FILE);
         console.log('WhatsApp bridge ready' + (me ? ' as ' + me : ''));
       }
 
@@ -110,7 +168,7 @@ const app = express();
 app.use(express.json({ limit: '60mb' }));
 
 app.get('/status', function (req, res) {
-  res.json({ ready: ready, hasQr: Boolean(lastQr), me: me, error: lastError });
+  res.json({ ready: ready, hasQr: Boolean(lastQr), me: me, error: lastError, pairingCode: pairingCode });
 });
 
 app.get('/qr', function (req, res) {
@@ -143,6 +201,7 @@ app.post('/send', async function (req, res) {
   if (!to || !text) return res.status(400).json({ error: 'to and text are required' });
   try {
     const sent = await sock.sendMessage(to, { text: text });
+    rememberSent(sent);
     res.json({ ok: true, id: sent && sent.key ? sent.key.id : null });
   } catch (e) {
     res.status(500).json({ error: String(e && e.message ? e.message : e) });
@@ -166,10 +225,17 @@ app.post('/send-file', async function (req, res) {
       mimetype: mimetype,
       caption: caption,
     });
+    rememberSent(sent);
     res.json({ ok: true, id: sent && sent.key ? sent.key.id : null, bytes: buffer.length });
   } catch (e) {
     res.status(500).json({ error: String(e && e.message ? e.message : e) });
   }
+});
+
+// Your own-chat replies newer than ?after=<unix seconds>.
+app.get('/inbox', function (req, res) {
+  const after = Number(req.query.after || 0);
+  res.json({ messages: inbox.filter(function (m) { return m.ts > after; }) });
 });
 
 app.listen(PORT, '127.0.0.1', function () {
