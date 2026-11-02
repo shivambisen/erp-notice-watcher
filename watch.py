@@ -9,7 +9,9 @@ Usage:
     python3 watch.py --test-mail  send yourself a test alert
 """
 import argparse
+import html
 import logging
+import re
 import sys
 import time
 import traceback
@@ -40,6 +42,17 @@ def setup_logging(verbose: bool):
     root.addHandler(sh)
 
 
+def pdf_name(company: str, fallback: str) -> str:
+    """Name the file after the company ("Cars24.pdf"), keeping the extension.
+    Falls back to the ERP's notice-<id> name when there is no usable company."""
+    ext = fallback.rsplit(".", 1)[-1] if "." in fallback else "pdf"
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", html.unescape(company or ""))
+    name = re.sub(r"\s+", " ", name).strip(" .")[:80]
+    if not name or name.lower() == "notice":
+        return fallback
+    return f"{name}.{ext}"
+
+
 def make_attach_fn(client: ErpClient):
     """Return a function that fetches a notice's file, or None if it has none.
 
@@ -54,7 +67,11 @@ def make_attach_fn(client: ErpClient):
         if not info:
             return None
         if notice_id not in cache:
-            cache[notice_id] = client.download_attachment(info["year"], info["id"])
+            got = client.download_attachment(info["year"], info["id"])
+            if got:
+                data, filename, ctype = got
+                got = (data, pdf_name(store.title_of(cells), filename), ctype)
+            cache[notice_id] = got
         return cache[notice_id]
 
     return attach_for
