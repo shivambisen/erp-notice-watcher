@@ -135,3 +135,14 @@ If it expires, the filler tells you, and you export it again.
 | `FORMS_AUTOFILL` | on | `off` stops the form filler |
 | `FORMS_AUTO_SUBMIT` | on | `off` always asks you before submitting |
 | `FORMS_ALL_COMPANIES` | off | also fill forms for companies you didn't apply to |
+| `PORTAL_REMIND_HOURS` | 3 | how long before a portal deadline the reminder comes |
+
+### Company portals (HirePro, Superset, careers sites)
+
+Portals start with a sign-up, a password and often an OTP, so they are never
+filled automatically. When a notice for a company you applied to says
+*register on the portal* or *apply on the company portal*, you get a separate
+WhatsApp alert with the company, the deadline and the link (or "sent to your
+email" when CDC mailed it). A reminder follows a few hours before the deadline.
+Reply `P7 done` to stop it. Once you're signed in, Claude in your browser can
+fill the rest of the application from `profile.txt`.

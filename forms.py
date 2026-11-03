@@ -24,6 +24,7 @@ you with the link and deadline.
                                    submits nothing
 """
 import argparse
+import html
 import json
 import logging
 import os
@@ -399,6 +400,105 @@ def from_notice(cells: list) -> list:
     return ids
 
 
+# "register on the portal", "apply on the company portal", "HirePro". Signing up
+# needs your password or OTP, so these are never filled automatically: you get
+# an alert, then a reminder before the deadline until you reply "P<id> done".
+PORTAL_RE = re.compile(r"\b(?:register|registration|apply)\b[^.]{0,60}?\bportal\b|hirepro", re.I)
+PORTAL_SKIP_HOSTS = ("forms.gle", "docs.google.com/forms", "meet.google", "zoom.", "teams.microsoft",
+                     "webex.", "google.com/url")
+PORTAL_REMIND_HOURS = float(os.getenv("PORTAL_REMIND_HOURS", "3"))
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july",
+     "august", "september", "october", "november", "december"])}
+
+
+def _ist_now():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+
+
+def parse_deadline(text: str):
+    """The first "3rd November 2026" in text, with a time within ~40 chars of it
+    ("4:00 PM, 3rd November" or "3rd November 2026, 11:59 PM"). IST, naive."""
+    from datetime import datetime
+
+    for m in re.finditer(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+),?\s+(\d{4})", text):
+        month = _MONTHS.get(m.group(2).lower())
+        if not month:
+            continue
+        near = text[max(0, m.start() - 40):m.end() + 40]
+        t = re.search(r"(\d{1,2})(?::(\d{2}))?\s*([AP])\.?M", near, re.I)
+        hour, minute = 23, 59
+        if t:
+            hour = int(t.group(1)) % 12 + (12 if t.group(3).upper() == "P" else 0)
+            minute = int(t.group(2) or 0)
+        try:
+            return datetime(int(m.group(3)), month, int(m.group(1)), hour, minute)
+        except ValueError:
+            continue
+    return None
+
+
+def _unglue(url: str) -> str:
+    """Notices glue the next sentence onto links ("…/CgMDiOHYPlease note")."""
+    url = re.split(r"[\u200b-\u200d\u2060\ufeff]", url)[0]
+    url = re.sub(r"(?:[A-Z]{2,}:|(?:Please|Note|Students|Deadline|Kindly|Interested|Engineer|All|The|CDC|Registration)[A-Za-z]*:?)$", "", url)
+    url = re.sub(r"/\d{1,2}\.$", "/", url)  # a glued "4." list number
+    return url.rstrip(".,)")
+
+
+def portal_from_notice(cells: list):
+    """Alert once about a portal registration in this notice. Returns the task id."""
+    import store
+
+    body = html.unescape(store.cell(cells, config.NOTICE_BODY_COL) or "")
+    hit = PORTAL_RE.search(body)
+    if not hit or re.search(r"\bERP\s+portal\b", hit.group(0), re.I):
+        return None
+    company = store.title_of(cells)
+    if not FORMS_ALL_COMPANIES and not any(_same_company(company, c) for c in _applied_companies()):
+        return None
+    links = [_unglue(u) for u in re.findall(r"https?://[^\s<>\"']+", body)
+             if not any(h in u for h in PORTAL_SKIP_HOSTS)]
+    due = parse_deadline(body[hit.start():]) or parse_deadline(body)
+    # one alert per portal link, or per company + deadline when the link was only mailed
+    key = links[0] if links else f"portal:{_norm(company)}:{due:%Y-%m-%d %H:%M}" if due else f"portal:{_norm(company)}:{store.cell(cells, 0)}"
+    tid = db.form_add(key, company, store.cell(cells, 2) or "", f"{due:%d %b %Y, %I:%M %p}" if due else "")
+    if not tid:
+        return None
+    db.form_set(tid, "portal", {"due": due.isoformat() if due else None, "link": links[0] if links else None})
+    if due and due < _ist_now():
+        db.form_set(tid, "portal_done", {"note": "deadline already passed"})
+        return tid
+    _tell(f"⚠️ *Portal sign-up needed: {company}*\n"
+          f"Deadline: {f'{due:%d %b, %I:%M %p}' if due else 'see notice'}\n"
+          f"Link: {links[0] if links else 'sent to your email (check inbox and spam)'}\n\n"
+          f"Sign up or log in, then ask Claude to fill the rest.\n"
+          f"Reply *P{tid} done* here once finished"
+          + (f", otherwise I'll remind you {PORTAL_REMIND_HOURS:g}h before the deadline." if due else "."))
+    return tid
+
+
+def portal_reminders():
+    """Remind once, PORTAL_REMIND_HOURS before the deadline, about open portals."""
+    from datetime import datetime, timedelta
+
+    now = _ist_now()
+    for t in db.form_list(("portal",)):
+        d = t["detail"] or {}
+        if not d.get("due") or d.get("reminded"):
+            continue
+        due = datetime.fromisoformat(d["due"])
+        if due < now:
+            db.form_set(t["id"], "portal_done", {"note": "deadline passed"})
+        elif due - now <= timedelta(hours=PORTAL_REMIND_HOURS):
+            left = int((due - now).total_seconds() // 60)
+            _tell(f"⏰ *{t['company']} portal closes in {left // 60}h {left % 60}m* ({due:%I:%M %p}).\n"
+                  f"Link: {d.get('link') or 'in your email'}\nReply *P{t['id']} done* if already finished.")
+            db.form_set(t["id"], "portal", {"reminded": True})
+
+
 def process_notices(rows: list):
     """Called by the watcher with the poll's new notices. Never raises."""
     if not (FORMS_ENABLED and db.enabled()):
@@ -408,6 +508,7 @@ def process_notices(rows: list):
         for cells in rows:
             for tid in from_notice(cells):
                 handle(db.form_get(tid))
+            portal_from_notice(cells)
     except Exception as exc:
         log.warning("Form handling failed: %s", exc)
 
@@ -426,6 +527,13 @@ def read_inbox():
         return
     for m in msgs:
         after = max(after, m["ts"])
+        done = re.match(r"\s*P(\d+)\s+done\b", m["text"], re.I)
+        if done:
+            task = db.form_get(int(done.group(1)))
+            if task and task["status"] == "portal":
+                db.form_set(task["id"], "portal_done", {"note": "you marked it done"})
+                _tell(f"✓ {task['company']} portal marked done.")
+            continue
         hit = re.match(r"\s*F(\d+)\b[\s:.-]*(.*)", m["text"], re.S | re.I)
         if not hit:
             continue
@@ -491,6 +599,7 @@ def main() -> int:
         return 0
     if args.inbox:
         read_inbox()
+        portal_reminders()
     if args.scan:
         scan()
     return 0
