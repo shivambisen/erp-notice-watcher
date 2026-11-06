@@ -11,6 +11,7 @@ Usage:
 import argparse
 import html
 import logging
+import os
 import re
 import sys
 import time
@@ -104,7 +105,9 @@ def poll(client: ErpClient) -> int:
 
     if use_db:
         try:
-            return poll_with_db(notices, make_attach_fn(client))
+            count = poll_with_db(notices, make_attach_fn(client))
+            send_late_pdfs(client)
+            return count
         except Exception as exc:
             # Fall through to the file-based path rather than skipping the alert.
             log.warning("Database unavailable (%s); using local state", exc)
@@ -199,6 +202,7 @@ def poll_with_db(notices: list, attach_fn=None) -> int:
     notifier.send_notices(fresh, attach_fn)
 
     deliver_whatsapp(fresh, attach_fn)
+    watch_for_late_pdfs(fresh, attach_fn)
 
     db.mark_alerted(fresh, store.fingerprint)
 
@@ -206,6 +210,73 @@ def poll_with_db(notices: list, attach_fn=None) -> int:
     import forms
     forms.process_notices(fresh)
     return len(fresh)
+
+
+LATE_PDF_KEY = "late_pdf_watch"
+LATE_PDF_HOURS = float(os.getenv("LATE_PDF_HOURS", "48"))
+
+
+def watch_for_late_pdfs(notices: list, attach_fn=None):
+    """Remember notices that went out without a file.
+
+    CDC often posts a notice first and uploads its PDF minutes later. Those
+    notices are watched for LATE_PDF_HOURS, and send_late_pdfs() sends the file
+    as soon as it appears. Never raises.
+    """
+    try:
+        import db
+        watched = db.get_meta(LATE_PDF_KEY, {}) or {}
+        now = time.time()
+        for cells in notices:
+            if attach_fn is not None and attach_fn(cells):
+                continue
+            watched[store.cell(cells, 0)] = {"cells": cells, "since": now}
+        db.set_meta(LATE_PDF_KEY, watched)
+    except Exception as exc:
+        log.warning("Could not record notices for late PDFs: %s", exc)
+
+
+def send_late_pdfs(client: ErpClient):
+    """Send PDFs that were uploaded after their notice was alerted. Never raises."""
+    try:
+        import db
+        import whatsapp
+        if not (db.enabled() and whatsapp.enabled()):
+            return
+        watched = db.get_meta(LATE_PDF_KEY, {}) or {}
+        if not watched:
+            return
+        attachments = client.last_attachments or {}
+        cutoff = time.time() - LATE_PDF_HOURS * 3600
+        changed = False
+        for notice_id, item in list(watched.items()):
+            if item.get("since", 0) < cutoff:
+                del watched[notice_id]
+                changed = True
+                continue
+            info = attachments.get(notice_id)
+            if not info:
+                continue
+            cells = item["cells"]
+            got = client.download_attachment(info["year"], info["id"])
+            if not got:
+                continue  # try again next check
+            data, filename, ctype = got
+            attachment = (data, pdf_name(store.title_of(cells), filename), ctype)
+            caption = f"📎 *PDF added* to the {store.title_of(cells)} notice " \
+                      f"({store.time_of(cells)})"
+            if not whatsapp.wait_ready(30):
+                return
+            res = whatsapp.send_document(caption, attachment)
+            if res["sent"]:
+                log.info("Late PDF for notice %s (%s) sent", notice_id, store.title_of(cells))
+                del watched[notice_id]
+                changed = True
+                time.sleep(config.ALERT_SEND_GAP)
+        if changed:
+            db.set_meta(LATE_PDF_KEY, watched)
+    except Exception as exc:
+        log.warning("Late PDF check failed: %s", exc)
 
 
 def deliver_whatsapp(notices: list, attach_fn=None):
