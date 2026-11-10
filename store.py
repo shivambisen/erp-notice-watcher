@@ -2,6 +2,7 @@
 import hashlib
 import json
 import logging
+import re
 import time
 
 import config
@@ -89,12 +90,30 @@ def sort_key(cells: list):
     return _dt.min
 
 
+# CDC staff sometimes post dummy notices while testing the ERP
+# ("Test Companey", "Please ignore this message. It is for testing").
+_TEST_NOTICE_RE = re.compile(
+    r"\btest\s*compan|\b(?:please|pls|kindly)\s+ignore\b|\bignore\s+this\b"
+    r"|\bfor\s+testing\s+purposes?\b|^\s*test(?:ing)?\s*(?:notice|purpose)?\s*\d*\s*$",
+    re.I,
+)
+
+
+def is_test_notice(cells: list) -> bool:
+    title = title_of(cells)
+    body = re.sub(r"<[^>]+>", " ", cell(cells, config.NOTICE_BODY_COL))
+    return bool(_TEST_NOTICE_RE.search(title) or _TEST_NOTICE_RE.search(body[:300]))
+
+
 def should_alert(cells: list) -> bool:
     """Whether this notice is worth notifying about.
 
     Excluded notices are still stored and shown in the UI; they simply do not
     generate an email or WhatsApp message.
     """
+    if is_test_notice(cells):
+        return False
+
     kind = cell(cells, config.NOTICE_TYPE_COL).lower()
     if kind and any(x in kind for x in config.NOTICE_EXCLUDE_TYPES):
         return False

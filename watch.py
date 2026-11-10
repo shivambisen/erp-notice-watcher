@@ -250,7 +250,7 @@ def send_late_pdfs(client: ErpClient):
         cutoff = time.time() - LATE_PDF_HOURS * 3600
         changed = False
         for notice_id, item in list(watched.items()):
-            if item.get("since", 0) < cutoff:
+            if item.get("since", 0) < cutoff or store.is_test_notice(item.get("cells") or []):
                 del watched[notice_id]
                 changed = True
                 continue
