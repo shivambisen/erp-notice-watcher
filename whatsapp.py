@@ -258,6 +258,16 @@ def tidy_body(body: str) -> str:
     b = re.sub(r"(https?://\S*?\d)1\.\s+(?=[A-Z])", r"\1\n1. ", b)
     b = re.sub(r"(https?://\S*?[A-Za-z0-9])(Application|Important|Role|Registration|Interested"
                r"|Students|Please|Kindly|Note|Deadline|Venue)(?=[\s:-])", r"\1\n\2", b)
+    # day headings in schedules, glued to the text before and to their list
+    # ("...11:30 PM)Thursday, 12th November 20261. [PPT] ...")
+    # ("...schedule for Tuesday, 10th November 20261." stays in its sentence)
+    def _day_heading(m):
+        if re.search(r"\b(?:for|on|from|to)\s*$", b[:m.start()][-12:]):
+            return " " + m.group(1) + "\n"
+        return "\n\n*" + m.group(1) + "* "
+    b = re.sub(r"\s*((?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day,?\s*\d{1,2}(?:st|nd|rd|th)?"
+               r"\s+[A-Z][a-z]+,?\s+\d{4})\s*(?=1\.\s*[\[A-Za-z(])",
+               _day_heading, b)
     # numbered items: "1." "12." glued after a full stop, bracket, colon or
     # space, followed by the item text (never inside a date like 28.10.2026)
     b = re.sub(r"(?:(?<=[.)\]:])|(?<=\s))(\d{1,2})\.\s*(?=[A-Za-z(\[])", r"\n\1. ", b)
