@@ -1,6 +1,6 @@
 """Daily digest of open forms and company-portal links, posted to WhatsApp.
 
-Once a day (12:00 IST by default, see deploy/systemd/erp-digest.timer) this reads
+Twice a day (12:00 AM and 12:00 PM IST, see deploy/systemd/erp-digest.timer) this reads
 the recent notices, picks out every Google Form and company-portal link that is
 still open, and posts one message to the notice group:
 
@@ -224,9 +224,10 @@ def main() -> int:
 
     import db
     import whatsapp
-    today = now.strftime("%Y-%m-%d")
-    if db.get_meta("digest_sent_on") == today:
-        log.info("Digest already sent today")
+    # one digest per half-day slot (12 AM run, 12 PM run)
+    slot = now.strftime("%Y-%m-%d ") + ("AM" if now.hour < 12 else "PM")
+    if db.get_meta("digest_sent_on") == slot:
+        log.info("Digest already sent for %s", slot)
         return 0
     if not whatsapp.wait_ready(120):
         log.error("WhatsApp bridge not ready; digest not sent")
@@ -235,7 +236,7 @@ def main() -> int:
     if not res["sent"]:
         log.error("Digest not sent: %s", res["failed"])
         return 1
-    db.set_meta("digest_sent_on", today)
+    db.set_meta("digest_sent_on", slot)
     log.info("Digest sent: %d item(s)", len(items))
     return 0
 
