@@ -146,3 +146,30 @@ WhatsApp alert with the company, the deadline and the link (or "sent to your
 email" when CDC mailed it). A reminder follows a few hours before the deadline.
 Reply `P7 done` to stop it. Once you're signed in, Claude in your browser can
 fill the rest of the application from `profile.txt`.
+
+## Daily digest of open forms and portals
+
+Every day at **12:00 IST** the notice group gets one message listing every Google
+Form and company-portal link from recent notices that is still open, with its
+deadline:
+
+```
+*Open forms & portals - Thu 12 Nov, 12:00 PM*
+
+*1. Goldman Sachs* - Company portal
+Due: Thu 12 Nov, 6:00 PM (in 6h)
+https://...
+```
+
+It leaves out PPT meeting links, "didn't get the test link?" query forms, CDC's
+test notices, anything past its deadline, and Google Forms that no longer accept
+responses. A link whose notice gives no deadline is listed for 24 hours.
+
+Preview without sending: `./venv/bin/python digest.py --dry-run`.
+
+| Setting | Default | |
+|---|---|---|
+| `DIGEST_LOOKBACK_DAYS` | 14 | how far back to read notices |
+| `DIGEST_NO_DEADLINE_HOURS` | 24 | how long a link with no deadline is listed |
+
+To change the time, edit `OnCalendar` in `deploy/systemd/erp-digest.timer` (UTC).

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily WhatsApp digest of open forms and company portals
+After=network-online.target erp-wa-bridge.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/erp-notice-watcher
+ExecStart=/home/ubuntu/erp-notice-watcher/venv/bin/python digest.py
+TimeoutStartSec=600

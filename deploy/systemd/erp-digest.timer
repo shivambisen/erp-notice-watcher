@@ -1,0 +1,9 @@
+[Unit]
+Description=Open forms & portals digest daily at 12:00 IST
+
+[Timer]
+# 06:30 UTC = 12:00 IST. Not Persistent: a digest hours late is misleading.
+OnCalendar=*-*-* 06:30:00 UTC
+
+[Install]
+WantedBy=timers.target
