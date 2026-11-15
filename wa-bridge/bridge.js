@@ -202,7 +202,22 @@ app.post('/send', async function (req, res) {
   try {
     const sent = await sock.sendMessage(to, { text: text });
     rememberSent(sent);
-    res.json({ ok: true, id: sent && sent.key ? sent.key.id : null });
+    // optional: pin the new message for everyone (pin = seconds: 86400, 604800
+    // or 2592000) and unpin an older one (unpin = a key returned earlier)
+    let pinned = null;
+    const pin = req.body.pin;
+    if (pin && sent && sent.key) {
+      try {
+        if (req.body.unpin && req.body.unpin.id) {
+          await sock.sendMessage(to, { pin: req.body.unpin, type: 2 }).catch(function () {});
+        }
+        await sock.sendMessage(to, { pin: sent.key, type: 1, time: pin });
+        pinned = true;
+      } catch (e) {
+        pinned = String(e && e.message ? e.message : e);
+      }
+    }
+    res.json({ ok: true, id: sent && sent.key ? sent.key.id : null, key: sent ? sent.key : null, pinned: pinned });
   } catch (e) {
     res.status(500).json({ error: String(e && e.message ? e.message : e) });
   }

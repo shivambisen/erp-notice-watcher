@@ -1,8 +1,9 @@
 """Daily digest of open forms and company-portal links, posted to WhatsApp.
 
-Twice a day (12:00 AM and 12:00 PM IST, see deploy/systemd/erp-digest.timer) this reads
+Four times a day (12 AM, 6 AM, 12 PM and 6 PM IST, see deploy/systemd/erp-digest.timer) this reads
 the recent notices, picks out every Google Form and company-portal link that is
-still open, and posts one message to the notice group:
+still open, and posts one message to the notice group, pinned for 24 hours
+(the previous digest is unpinned):
 
     *1. AIRBUS* - Preference form
     Due: Thu 6 Nov, 1:00 PM (in 3h)
@@ -17,6 +18,7 @@ that say they no longer accept responses.
 """
 import argparse
 import html
+import json
 import logging
 import os
 import re
@@ -209,6 +211,40 @@ def build_message(items: list, now: datetime | None = None) -> str:
     return "\n".join(lines).strip()
 
 
+PIN_SECONDS = 86400  # WhatsApp allows 24h, 7d or 30d
+PIN_KEY = "digest_pinned"
+
+
+def send_pinned(text: str) -> dict:
+    """Send through the bridge, pin the new digest and unpin the last one."""
+    import db
+    import whatsapp
+
+    try:
+        last = json.loads(db.get_meta(PIN_KEY) or "{}")
+    except ValueError:
+        last = {}
+    results = {"sent": [], "failed": {}}
+    for number in config.load_whatsapp_numbers():
+        to = whatsapp.chat_id(number)
+        try:
+            r = requests.post(f"{config.WA_BRIDGE_URL}/send", timeout=60,
+                              json={"to": to, "text": text, "pin": PIN_SECONDS, "unpin": last.get(to)})
+            if r.status_code >= 300:
+                raise RuntimeError(f"bridge {r.status_code}: {r.text[:300]}")
+            body = r.json()
+            results["sent"].append(number)
+            if body.get("pinned") is True and body.get("key"):
+                last[to] = body["key"]
+            else:
+                log.warning("Digest sent to %s but not pinned: %s", to, body.get("pinned"))
+        except Exception as exc:
+            results["failed"][number] = str(exc)[:200]
+            log.warning("Digest to %s failed: %s", to, exc)
+    db.set_meta(PIN_KEY, json.dumps(last))
+    return results
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dry-run", action="store_true", help="print the message, send nothing")
@@ -224,15 +260,15 @@ def main() -> int:
 
     import db
     import whatsapp
-    # one digest per half-day slot (12 AM run, 12 PM run)
-    slot = now.strftime("%Y-%m-%d ") + ("AM" if now.hour < 12 else "PM")
+    # one digest per 6-hour slot (12 AM, 6 AM, 12 PM, 6 PM runs)
+    slot = now.strftime("%Y-%m-%d ") + f"{now.hour // 6 * 6:02d}h"
     if db.get_meta("digest_sent_on") == slot:
         log.info("Digest already sent for %s", slot)
         return 0
     if not whatsapp.wait_ready(120):
         log.error("WhatsApp bridge not ready; digest not sent")
         return 1
-    res = whatsapp.send(text)
+    res = send_pinned(text) if config.WHATSAPP_PROVIDER == "bridge" else whatsapp.send(text)
     if not res["sent"]:
         log.error("Digest not sent: %s", res["failed"])
         return 1

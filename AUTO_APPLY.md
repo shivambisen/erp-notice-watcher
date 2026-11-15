@@ -149,7 +149,7 @@ fill the rest of the application from `profile.txt`.
 
 ## Daily digest of open forms and portals
 
-Twice a day, at **12:00 AM and 12:00 PM IST**, the notice group gets one message listing every Google
+Four times a day, at **12 AM, 6 AM, 12 PM and 6 PM IST**, the notice group gets one pinned message (the previous one is unpinned) listing every Google
 Form and company-portal link from recent notices that is still open, with its
 deadline:
 
