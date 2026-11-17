@@ -611,6 +611,8 @@ def bubble(m: dict):
         due = it["due"].strftime("%d %b %Y, %I:%M %p") if it["due"] else ""
         db.form_add(it["url"], it["company"], it.get("title") or "", due)
         task = db.form_by_url(it["url"])
+        if task["status"] == "skipped":  # e.g. not eligible, or you said to leave it
+            continue
         if task["status"] != "submitted":
             handle(task, retry=("handoff",))
             task = db.form_get(task["id"])
