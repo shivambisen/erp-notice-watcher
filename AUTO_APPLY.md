@@ -173,3 +173,20 @@ Preview without sending: `./venv/bin/python digest.py --dry-run`.
 | `DIGEST_NO_DEADLINE_HOURS` | 24 | how long a link with no deadline is listed |
 
 To change the time, edit `OnCalendar` in `deploy/systemd/erp-digest.timer` (UTC).
+
+## "@bubble" - fill forms from WhatsApp
+
+Type this in the notice group (or your "Message yourself" chat):
+
+    @bubble fill the forms      every open Google Form from recent notices
+    @bubble fill deloitte       just that company's form
+
+Only messages sent from **your** WhatsApp account are picked up; the bridge
+drops anything anyone else writes, so nobody else can trigger it. Within about
+2 minutes it reacts 👀 to your message, then ✅ when every form was submitted,
+or ⚠️ when some need you (the details go to your "Message yourself" chat, never
+the group). Forms already submitted, or marked skipped, are never sent twice.
+
+It needs the same two things as automatic form filling: a Google session on the
+server (`./deploy/upload-google-session.sh`, for forms that record your Google
+email) and a Claude token (`./deploy/set-claude-token.sh`, for free-text answers).

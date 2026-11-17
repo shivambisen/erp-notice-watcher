@@ -444,6 +444,12 @@ def form_get(task_id: int):
         return cur.fetchone()
 
 
+def form_by_url(url: str):
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select * from form_tasks where url = %s", (url,))
+        return cur.fetchone()
+
+
 def form_claim(task_id: int, from_status: tuple) -> bool:
     """Atomically move a task to 'working' so two runs never submit it twice."""
     with connect() as conn:

@@ -63,8 +63,8 @@ let lastError = null;
 let starting = false;
 
 // Replies YOU type in your own "Message yourself" chat, so the watcher can ask
-// you a question (e.g. a form answer) and read the answer. Nothing from any
-// other chat is ever kept. Messages this bridge sent itself are skipped.
+// you a question (e.g. a form answer) and read the answer, plus "@bubble"
+// commands YOU send in a group. Nothing anyone else writes is ever kept. Messages this bridge sent itself are skipped.
 const INBOX_MAX = 50;
 const inbox = [];
 const sentIds = new Set();
@@ -95,11 +95,17 @@ async function start() {
 
     sock.ev.on('messages.upsert', function (ev) {
       for (const m of (ev && ev.messages) || []) {
-        if (!m.key || !m.key.fromMe || sentIds.has(m.key.id) || !isSelfChat(m.key.remoteJid)) continue;
+        if (!m.key || !m.key.fromMe || sentIds.has(m.key.id)) continue;
         const msg = m.message || {};
         const text = msg.conversation || (msg.extendedTextMessage && msg.extendedTextMessage.text) || '';
         if (!text) continue;
-        inbox.push({ id: m.key.id, text: text, ts: Number(m.messageTimestamp) || Math.floor(Date.now() / 1000) });
+        // your own self-chat replies, or an "@bubble ..." command YOU typed in a
+        // group (fromMe = sent from your account, so nobody else can trigger it)
+        const jid = m.key.remoteJid || '';
+        const bubble = /^\s*@bubble\b/i.test(text) && jid.endsWith('@g.us');
+        if (!isSelfChat(jid) && !bubble) continue;
+        inbox.push({ id: m.key.id, text: text, chat: jid, key: m.key,
+                     ts: Number(m.messageTimestamp) || Math.floor(Date.now() / 1000) });
         if (inbox.length > INBOX_MAX) inbox.shift();
       }
     });
@@ -248,6 +254,21 @@ app.post('/send-file', async function (req, res) {
 });
 
 // Your own-chat replies newer than ?after=<unix seconds>.
+// React to a message (e.g. a tick on an "@bubble" command once it is done).
+app.post('/react', async function (req, res) {
+  if (!ready) return res.status(503).json({ error: 'not linked yet' });
+  const key = req.body && req.body.key;
+  const emoji = (req.body && req.body.emoji) || '';
+  if (!key || !key.remoteJid || !key.id) return res.status(400).json({ error: 'key is required' });
+  try {
+    const sent = await sock.sendMessage(key.remoteJid, { react: { text: emoji, key: key } });
+    rememberSent(sent);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e && e.message ? e.message : e) });
+  }
+});
+
 app.get('/inbox', function (req, res) {
   const after = Number(req.query.after || 0);
   res.json({ messages: inbox.filter(function (m) { return m.ts > after; }) });

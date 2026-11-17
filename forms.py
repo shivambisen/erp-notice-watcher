@@ -320,9 +320,10 @@ def _summary(form: dict, answers: dict) -> str:
 
 
 # --- the flow --------------------------------------------------------------------
-def handle(task: dict, extra: dict | None = None):
-    """Try to fill and submit one form task. extra: {entry: value} from your reply."""
-    if not db.form_claim(task["id"], ("new", "asked", "failed")):
+def handle(task: dict, extra: dict | None = None, retry: tuple = ()):
+    """Try to fill and submit one form task. extra: {entry: value} from your reply.
+    retry: extra statuses to try again from (an "@bubble fill" retries handoffs)."""
+    if not db.form_claim(task["id"], ("new", "asked", "failed") + tuple(retry)):
         return
     head = f"{task['company'] or 'CDC'} - {task['title'] or 'form'}"
     try:
@@ -527,6 +528,13 @@ def read_inbox():
         return
     for m in msgs:
         after = max(after, m["ts"])
+        if re.match(r"\s*@bubble\b", m["text"], re.I):
+            try:
+                bubble(m)
+            except Exception as exc:
+                log.warning("@bubble failed: %s", exc)
+                _react(m, "❌")
+            continue
         done = re.match(r"\s*P(\d+)\s+done\b", m["text"], re.I)
         if done:
             task = db.form_get(int(done.group(1)))
@@ -561,6 +569,57 @@ def read_inbox():
             handle(task, extra={**(detail.get("filled") or {}), **extra})
     if after != start:
         db.set_meta("forms_inbox_after", after)
+
+
+# --- "@bubble" commands ------------------------------------------------------------
+# Type "@bubble fill the forms" (or "@bubble fill deloitte") in the notice group.
+# Only messages sent from YOUR WhatsApp account are picked up (the bridge drops
+# everyone else's), so nobody else can trigger it. When it starts it reacts 👀;
+# when done ✅ (everything submitted) or ⚠️ (some need you - details go to your
+# "Message yourself" chat). Nothing is posted in the group itself.
+def _react(m: dict, emoji: str):
+    if not m.get("key"):
+        return
+    try:
+        requests.post(f"{config.WA_BRIDGE_URL}/react", json={"key": m["key"], "emoji": emoji}, timeout=20)
+    except Exception as exc:
+        log.info("Reaction failed: %s", exc)
+
+
+def bubble(m: dict):
+    import digest
+
+    words = re.sub(r"^\s*@bubble\b[\s,:]*", "", m["text"], flags=re.I).strip()
+    if not re.match(r"(?:please\s+)?fill\b", words, re.I):
+        _react(m, "❓")
+        _tell("*@bubble* commands:\n- @bubble fill the forms  (every open form)\n"
+              "- @bubble fill deloitte  (just that company)")
+        return
+    # "fill the forms" -> all; "fill deloitte form" -> forms whose company matches
+    want = re.sub(r"^(?:please\s+)?fill\b|\b(?:the|all|my|forms?|google|please|pls)\b", " ", words, flags=re.I)
+    want = re.sub(r"\s+", " ", want).strip(" .!")
+    _react(m, "👀")
+    items = [i for i in digest.collect() if i["kind"] == "form"]
+    if want:
+        items = [i for i in items if want.lower() in i["company"].lower() or _same_company(want, i["company"])]
+    if not items:
+        _tell(f"@bubble: no open Google Form{' for ' + want if want else ''} right now.")
+        _react(m, "✅")
+        return
+    done, pending = [], []
+    for it in items:
+        due = it["due"].strftime("%d %b %Y, %I:%M %p") if it["due"] else ""
+        db.form_add(it["url"], it["company"], it.get("title") or "", due)
+        task = db.form_by_url(it["url"])
+        if task["status"] != "submitted":
+            handle(task, retry=("handoff",))
+            task = db.form_get(task["id"])
+        (done if task["status"] == "submitted" else pending).append(f"{it['company']} ({task['status']})")
+    log.info("@bubble fill: %d submitted, %d need you", len(done), len(pending))
+    if pending:
+        _tell("*@bubble fill*\n" + (f"Submitted: {', '.join(done)}\n" if done else "")
+              + f"Need you: {', '.join(pending)} - see the messages above.")
+    _react(m, "⚠️" if pending else "✅")
 
 
 def scan(days: int = 3):
