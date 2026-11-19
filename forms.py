@@ -514,13 +514,40 @@ def process_notices(rows: list):
         log.warning("Form handling failed: %s", exc)
 
 
+# The inbox runs every 2 minutes. Keeping its cursor in a local file (not Neon)
+# means an idle run never touches the database, so Neon can auto-suspend --
+# polling it every 2 minutes kept compute awake 24/7 and blew the free quota.
+CURSOR_FILE = config.STATE_DIR / "forms_inbox_after"
+REMIND_STAMP = config.STATE_DIR / "portal_reminders_at"
+REMIND_EVERY = 30 * 60
+
+
+def _cursor() -> float:
+    try:
+        return float(CURSOR_FILE.read_text().strip())
+    except (OSError, ValueError):
+        return float(db.get_meta("forms_inbox_after", 0) or 0)  # one-time migration
+
+
+def reminders_due() -> bool:
+    """True at most once per REMIND_EVERY seconds (keeps Neon idle in between)."""
+    import time
+    try:
+        if time.time() - REMIND_STAMP.stat().st_mtime < REMIND_EVERY:
+            return False
+    except OSError:
+        pass
+    REMIND_STAMP.write_text(str(int(time.time())))
+    return True
+
+
 def read_inbox():
     """Apply your WhatsApp replies ("F12 1: answer; 2: b") and finish those forms."""
     import whatsapp
 
     if config.WHATSAPP_PROVIDER != "bridge":
         return
-    start = after = float(db.get_meta("forms_inbox_after", 0) or 0)
+    start = after = _cursor()
     try:
         msgs = requests.get(f"{config.WA_BRIDGE_URL}/inbox", params={"after": after}, timeout=10).json()["messages"]
     except Exception as exc:
@@ -567,8 +594,8 @@ def read_inbox():
                 learn(titles[int(pm.group(1)) - 1], val)
         if extra:
             handle(task, extra={**(detail.get("filled") or {}), **extra})
-    if after != start:
-        db.set_meta("forms_inbox_after", after)
+    if after != start or not CURSOR_FILE.exists():
+        CURSOR_FILE.write_text(str(after))
 
 
 # --- "@bubble" commands ------------------------------------------------------------
@@ -660,7 +687,8 @@ def main() -> int:
         return 0
     if args.inbox:
         read_inbox()
-        portal_reminders()
+        if reminders_due():
+            portal_reminders()
     if args.scan:
         scan()
     return 0

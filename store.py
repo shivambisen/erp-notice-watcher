@@ -32,7 +32,7 @@ def load() -> dict:
 
 def save(state: dict):
     # Keep the file from growing without bound; the board only shows ~50 rows.
-    state["seen"] = state["seen"][-1000:]
+    state["seen"] = state["seen"][-20000:]
     tmp = config.SEEN_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, indent=1))
     tmp.replace(config.SEEN_FILE)
